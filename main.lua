@@ -19,6 +19,7 @@ local espLoop = true
 local currentSpeed = 50
 local currentTab = "Main"
 local hopping = false
+local minimized = false
 
 -- Configurações de Raridades
 local raritiesConfig = {
@@ -85,19 +86,38 @@ local function createButton(text, callback, color)
 end
 
 -- Função para aplicar velocidade
-local function applySpeed()
-    local character = player.Character
-    if character then
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
+local function setCharacterSpeed()
+    local char = player.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
             humanoid.WalkSpeed = speedEnabled and currentSpeed or 16
         end
     end
 end
 
-player.CharacterAdded:Connect(function()
-    task.wait(1)
-    applySpeed()
+-- Conexão para aplicar velocidade continuamente
+local speedConnection
+local function toggleSpeed()
+    speedEnabled = not speedEnabled
+    
+    if speedConnection then
+        speedConnection:Disconnect()
+        speedConnection = nil
+    end
+    
+    if speedEnabled then
+        speedConnection = RunService.Heartbeat:Connect(setCharacterSpeed)
+    end
+    
+    setCharacterSpeed()
+    speedBtn.Text = speedEnabled and "⚡ SPEED: "..currentSpeed or "⚡ SPEED: OFF"
+end
+
+-- Atualizar velocidade quando o personagem é recriado
+player.CharacterAdded:Connect(function(character)
+    character:WaitForChild("Humanoid", 5)
+    setCharacterSpeed()
 end)
 
 -- TELEPORT UP/DOWN
@@ -275,37 +295,6 @@ local function clearESP()
     trackedRarities = {}
 end
 
--- SPEED HACK COM CONTROLE DE VELOCIDADE
-local speedConnection
-local function toggleSpeed()
-    speedEnabled = not speedEnabled
-    
-    if speedEnabled then
-        speedConnection = RunService.Heartbeat:Connect(function()
-            local char = player.Character
-            if not char then return end
-            
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.WalkSpeed = currentSpeed
-            end
-        end)
-    else
-        if speedConnection then
-            speedConnection:Disconnect()
-            speedConnection = nil
-        end
-        
-        local char = player.Character
-        if char then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.WalkSpeed = 16
-            end
-        end
-    end
-end
-
 -- SERVER HOP MOBILE (VERSÃO SIMPLIFICADA)
 local function serverHop()
     if hopping then return end
@@ -343,7 +332,7 @@ local function serverHop()
     
     -- Método simplificado para mobile
     local success, err = pcall(function()
-        TeleportService:Teleport(game.PlaceId) -- Teleporte aleatório padrão
+        TeleportService:Teleport(game.PlaceId)
     end)
     
     if not success then
@@ -550,6 +539,7 @@ speedBtn.Parent = buttonsFrame
 local speedControls = Instance.new("Frame", buttonsFrame)
 speedControls.Size = UDim2.new(1, 0, 0, 30)
 speedControls.BackgroundTransparency = 1
+speedControls.LayoutOrder = 100
 
 local decreaseBtn = Instance.new("TextButton", speedControls)
 decreaseBtn.Size = UDim2.new(0.25, 0, 1, 0)
@@ -590,15 +580,8 @@ decreaseBtn.MouseButton1Click:Connect(function()
     currentSpeed = math.max(16, currentSpeed - 5)
     speedBtn.Text = "⚡ SPEED: "..currentSpeed
     speedDisplay.Text = "Velocidade: "..currentSpeed
-    
     if speedEnabled then
-        local char = player.Character
-        if char then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.WalkSpeed = currentSpeed
-            end
-        end
+        setCharacterSpeed()
     end
 end)
 
@@ -606,208 +589,82 @@ increaseBtn.MouseButton1Click:Connect(function()
     currentSpeed = currentSpeed + 5
     speedBtn.Text = "⚡ SPEED: "..currentSpeed
     speedDisplay.Text = "Velocidade: "..currentSpeed
-    
     if speedEnabled then
-        local char = player.Character
-        if char then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.WalkSpeed = currentSpeed
-            end
-        end
+        setCharacterSpeed()
     end
 end)
 
 -- Conteúdo da aba Visual
-local visualContent = Instance.new("Frame", visualFrame)
-visualContent.Size = UDim2.new(1, 0, 1, 0)
-visualContent.BackgroundTransparency = 1
+local visualButtonsFrame = Instance.new("Frame", visualFrame)
+visualButtonsFrame.Size = UDim2.new(1, 0, 1, 0)
+visualButtonsFrame.BackgroundTransparency = 1
 
-local layout = Instance.new("UIListLayout", visualContent)
-layout.Padding = UDim.new(0, 10)
-layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+local visualGrid = Instance.new("UIGridLayout", visualButtonsFrame)
+visualGrid.CellPadding = UDim2.new(0, 10, 0, 10)
+visualGrid.CellSize = UDim2.new(0.5, -5, 0, 50)
+visualGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+visualGrid.SortOrder = Enum.SortOrder.LayoutOrder
 
--- Botão principal do Player ESP
-local playerEspBtn = createButton("👁️ PLAYER ESP", function() 
+-- Botões para ESP
+local playerESPButton = createButton("👤 PLAYER ESP", function()
     playerESPEnabled = not playerESPEnabled
-    if not playerESPEnabled then 
-        for plr, data in pairs(trackedPlayers) do
-            data.highlight:Destroy()
-            data.billboard:Destroy()
-        end
-        trackedPlayers = {}
+    if not playerESPEnabled then
+        clearESP()
     end
-end, Color3.fromRGB(50, 150, 255))
-playerEspBtn.Size = UDim2.new(0.9, 0, 0, 50)
-playerEspBtn.Parent = visualContent
+end, Color3.fromRGB(200, 50, 50))
+playerESPButton.Parent = visualButtonsFrame
 
--- Botão principal do Rarity ESP
-local rarityEspBtn = createButton("🧠 RARITY ESP", function() 
+local rarityESPButton = createButton("🌈 RARITY ESP", function()
     rarityESPEnabled = not rarityESPEnabled
-    if not rarityESPEnabled then 
+    if not rarityESPEnabled then
         for _, billboard in pairs(trackedRarities) do
             billboard:Destroy()
         end
         trackedRarities = {}
     end
-end, Color3.fromRGB(180, 80, 220))
-rarityEspBtn.Size = UDim2.new(0.9, 0, 0, 50)
-rarityEspBtn.Parent = visualContent
+end, Color3.fromRGB(100, 50, 200))
+rarityESPButton.Parent = visualButtonsFrame
 
--- Configurações de Raridades
-local raritySettingsFrame = Instance.new("Frame", visualContent)
-raritySettingsFrame.Size = UDim2.new(0.9, 0, 0, 180)
-raritySettingsFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-raritySettingsFrame.BackgroundTransparency = 0.7
-raritySettingsFrame.BorderSizePixel = 0
-
-local rarityCorner = Instance.new("UICorner", raritySettingsFrame)
-rarityCorner.CornerRadius = UDim.new(0, 8)
-
-local rarityTitle = Instance.new("TextLabel", raritySettingsFrame)
-rarityTitle.Size = UDim2.new(1, 0, 0, 30)
-rarityTitle.Text = "FILTRAR RARIDADES"
-rarityTitle.Font = Enum.Font.GothamBold
-rarityTitle.TextColor3 = Color3.new(1, 1, 1)
-rarityTitle.BackgroundTransparency = 1
-rarityTitle.TextSize = 14
-
-local rarityListLayout = Instance.new("UIListLayout", raritySettingsFrame)
-rarityListLayout.Padding = UDim.new(0, 5)
-
--- Criar botões de seleção para cada raridade
-for rarityName, config in pairs(raritiesConfig) do
-    local rarityBtn = Instance.new("TextButton")
-    rarityBtn.Size = UDim2.new(0.9, 0, 0, 30)
-    rarityBtn.Position = UDim2.new(0.05, 0, 0, 0)
-    rarityBtn.Text = "  "..rarityName
-    rarityBtn.Font = Enum.Font.Gotham
-    rarityBtn.TextSize = 14
-    rarityBtn.TextXAlignment = Enum.TextXAlignment.Left
-    rarityBtn.BackgroundColor3 = config.color
-    rarityBtn.BackgroundTransparency = 0.7
-    rarityBtn.TextColor3 = Color3.new(1,1,1)
-    rarityBtn.AutoButtonColor = false
-    
-    local btnCorner = Instance.new("UICorner", rarityBtn)
-    btnCorner.CornerRadius = UDim.new(0, 4)
-    
-    local toggleIndicator = Instance.new("Frame", rarityBtn)
-    toggleIndicator.Size = UDim2.new(0, 20, 0, 20)
-    toggleIndicator.Position = UDim2.new(1, -25, 0.5, -10)
-    toggleIndicator.BackgroundColor3 = config.enabled and Color3.new(0,1,0) or Color3.new(1,0,0)
-    toggleIndicator.BorderSizePixel = 0
-    
-    local indicatorCorner = Instance.new("UICorner", toggleIndicator)
-    indicatorCorner.CornerRadius = UDim.new(1, 0)
-    
-    rarityBtn.MouseButton1Click:Connect(function()
-        raritiesConfig[rarityName].enabled = not raritiesConfig[rarityName].enabled
-        toggleIndicator.BackgroundColor3 = raritiesConfig[rarityName].enabled and Color3.new(0,1,0) or Color3.new(1,0,0)
-        
-        -- Limpar ESPs da raridade desativada
-        if not raritiesConfig[rarityName].enabled then
-            for model, billboard in pairs(trackedRarities) do
-                if billboard:FindFirstChildOfClass("TextLabel").Text == rarityName then
-                    billboard:Destroy()
-                    trackedRarities[model] = nil
-                end
+-- Botão de minimizar/maximizar
+minimizeBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    if minimized then
+        mainFrame.Size = UDim2.new(0, 380, 0, 40)
+        minimizeBtn.Text = "+"
+        for _, tabName in ipairs({"Sobre", "Main", "Visual"}) do
+            local frame = mainFrame:FindFirstChild(tabName.."Frame")
+            if frame then
+                frame.Visible = false
             end
         end
-    end)
-    
-    rarityBtn.Parent = raritySettingsFrame
-end
-
--- Ajustar posicionamento
-rarityTitle.Position = UDim2.new(0, 0, 0, 5)
-rarityListLayout.Padding = UDim.new(0, 8)
-rarityListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
--- Barra de status
-local statusBar = Instance.new("Frame", mainFrame)
-statusBar.Size = UDim2.new(1, -20, 0, 25)
-statusBar.Position = UDim2.new(0, 10, 1, -35)
-statusBar.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-statusBar.BackgroundTransparency = 0.5
-
-local statusCorner = Instance.new("UICorner", statusBar)
-statusCorner.CornerRadius = UDim.new(0, 8)
-
-local statusLayout = Instance.new("UIListLayout", statusBar)
-statusLayout.FillDirection = Enum.FillDirection.Horizontal
-statusLayout.Padding = UDim.new(0, 10)
-
-local statusPadding = Instance.new("UIPadding", statusBar)
-statusPadding.PaddingLeft = UDim.new(0, 10)
-statusPadding.PaddingRight = UDim.new(0, 10)
-
--- Função para criar indicadores de status
-local function createStatusIndicator(name, color)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 70, 1, 0)
-    frame.BackgroundTransparency = 1
-    
-    local dot = Instance.new("Frame", frame)
-    dot.Size = UDim2.new(0, 10, 0, 10)
-    dot.Position = UDim2.new(0, 0, 0.5, -5)
-    dot.BackgroundColor3 = color
-    dot.BorderSizePixel = 0
-    
-    local dotCorner = Instance.new("UICorner", dot)
-    dotCorner.CornerRadius = UDim.new(1, 0)
-    
-    local label = Instance.new("TextLabel", frame)
-    label.Size = UDim2.new(1, -15, 1, 0)
-    label.Position = UDim2.new(0, 15, 0, 0)
-    label.Text = name
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 20
-    label.TextColor3 = Color3.new(1, 1, 1)
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.BackgroundTransparency = 1
-    
-    return frame
-end
-
--- Criar indicadores
-local speedStatus = createStatusIndicator("SPEED", Color3.fromRGB(255, 200, 50))
-speedStatus.Parent = statusBar
-
-local playerEspStatus = createStatusIndicator("P.ESP", Color3.fromRGB(50, 150, 255))
-playerEspStatus.Parent = statusBar
-
-local rarityEspStatus = createStatusIndicator("R.ESP", Color3.fromRGB(180, 80, 220))
-rarityEspStatus.Parent = statusBar
-
-local wallStatus = createStatusIndicator("WALL", Color3.fromRGB(100, 200, 100))
-wallStatus.Parent = statusBar
-
-local hopStatus = createStatusIndicator("HOP", Color3.fromRGB(200, 50, 150))
-hopStatus.Parent = statusBar
-
--- Atualizar status
-local function updateStatus()
-    speedStatus:FindFirstChildOfClass("Frame").BackgroundColor3 = speedEnabled and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 50, 50)
-    playerEspStatus:FindFirstChildOfClass("Frame").BackgroundColor3 = playerESPEnabled and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 50, 50)
-    rarityEspStatus:FindFirstChildOfClass("Frame").BackgroundColor3 = rarityESPEnabled and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 50, 50)
-    wallStatus:FindFirstChildOfClass("Frame").BackgroundColor3 = wallBypass and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 50, 50)
-    hopStatus:FindFirstChildOfClass("Frame").BackgroundColor3 = hopping and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 50, 50)
-end
-
--- Atualizar periodicamente
-task.spawn(function()
-    while true do
-        updateStatus()
-        task.wait(0.5)
+    else
+        mainFrame.Size = UDim2.new(0, 380, 0, 420)
+        minimizeBtn.Text = "-"
+        for _, tabName in ipairs({"Sobre", "Main", "Visual"}) do
+            local frame = mainFrame:FindFirstChild(tabName.."Frame")
+            if frame then
+                frame.Visible = (tabName == currentTab)
+            end
+        end
     end
 end)
 
--- Sistema de arrastar com toque
-local dragging
-local dragInput
-local dragStart
-local startPos
+-- Botão de fechar
+closeBtn.MouseButton1Click:Connect(function()
+    gui:Destroy()
+    espLoop = false
+    clearESP()
+    if wallClimbConnection then
+        wallClimbConnection:Disconnect()
+    end
+    if speedConnection then
+        speedConnection:Disconnect()
+    end
+end)
+
+-- Sistema de arrastar para mobile e PC
+local dragging = false
+local dragInput, dragStart, startPos
 
 local function updateInput(input)
     local delta = input.Position - dragStart
@@ -815,7 +672,7 @@ local function updateInput(input)
 end
 
 titleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
         dragging = true
         dragStart = input.Position
         startPos = mainFrame.Position
@@ -829,117 +686,16 @@ titleBar.InputBegan:Connect(function(input)
 end)
 
 titleBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
         dragInput = input
     end
 end)
 
 UIS.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
+    if dragging and (input == dragInput) then
         updateInput(input)
     end
 end)
 
--- Botão flutuante para reabrir
-local floatingBtn = Instance.new("TextButton", gui)
-floatingBtn.Size = UDim2.new(0, 50, 0, 50)
-floatingBtn.Position = UDim2.new(0, 20, 1, -80)
-floatingBtn.Text = "⚡"
-floatingBtn.Font = Enum.Font.GothamBold
-floatingBtn.TextSize = 24
-floatingBtn.TextColor3 = Color3.new(1, 1, 1)
-floatingBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
-floatingBtn.Visible = false
-floatingBtn.AutoButtonColor = false
-
-local floatingCorner = Instance.new("UICorner", floatingBtn)
-floatingCorner.CornerRadius = UDim.new(1, 0)
-
--- Funcionalidade dos botões de controle
-closeBtn.MouseButton1Click:Connect(function()
-    gui:Destroy()
-    espLoop = false
-    clearESP()
-    if speedConnection then
-        speedConnection:Disconnect()
-    end
-    if wallClimbConnection then
-        wallClimbConnection:Disconnect()
-    end
-end)
-
-minimizeBtn.MouseButton1Click:Connect(function()
-    mainFrame.Visible = false
-    floatingBtn.Visible = true
-end)
-
-floatingBtn.MouseButton1Click:Connect(function()
-    mainFrame.Visible = true
-    floatingBtn.Visible = false
-end)
-
--- Efeito de sombra
-local shadow = Instance.new("ImageLabel", mainFrame)
-shadow.Image = "rbxassetid://1316045217"
-shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
-shadow.ImageTransparency = 0.8
-shadow.ScaleType = Enum.ScaleType.Slice
-shadow.SliceCenter = Rect.new(10, 10, 118, 118)
-shadow.Size = UDim2.new(1, 20, 1, 20)
-shadow.Position = UDim2.new(0, -10, 0, -10)
-shadow.BackgroundTransparency = 1
-shadow.ZIndex = -1
-
--- Efeito de brilho
-local glow = Instance.new("ImageLabel", mainFrame)
-glow.Image = "rbxassetid://8992230671"
-glow.ImageColor3 = Color3.fromRGB(0, 100, 255)
-glow.BackgroundTransparency = 1
-glow.Size = UDim2.new(1, 30, 1, 30)
-glow.Position = UDim2.new(0, -15, 0, -15)
-glow.ZIndex = -1
-
--- Notificação inicial
-task.spawn(function()
-    local notify = Instance.new("Frame", gui)
-    notify.Size = UDim2.new(0, 300, 0, 50)
-    notify.Position = UDim2.new(0.5, -150, 0, 20)
-    notify.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
-    notify.BackgroundTransparency = 0.3
-    
-    local notifyCorner = Instance.new("UICorner", notify)
-    notifyCorner.CornerRadius = UDim.new(0, 12)
-    
-    local notifyStroke = Instance.new("UIStroke", notify)
-    notifyStroke.Color = Color3.fromRGB(0, 200, 255)
-    notifyStroke.Thickness = 2
-    
-    local label = Instance.new("TextLabel", notify)
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.Text = "⚡ Vixz Hub - Menu Ativado!"
-    label.Font = Enum.Font.GothamBold
-    label.TextColor3 = Color3.fromRGB(200, 230, 255)
-    label.BackgroundTransparency = 1
-    label.TextSize = 20
-    
-    TweenService:Create(notify, TweenInfo.new(0.5), {
-        Position = UDim2.new(0.5, -150, 0, 30)
-    }):Play()
-    
-    wait(3)
-    
-    TweenService:Create(notify, TweenInfo.new(0.5), {
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0.5, -150, 0, 10)
-    }):Play()
-    
-    TweenService:Create(notifyStroke, TweenInfo.new(0.5), {
-        Transparency = 1
-    }):Play()
-    
-    wait(0.5)
-    notify:Destroy()
-end)
-
--- Inicializar status
-updateStatus()
+-- Inicializar velocidade
+setCharacterSpeed()
