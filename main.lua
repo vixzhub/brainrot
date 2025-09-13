@@ -1,3 +1,4 @@
+-- Pedro Hub V1.5 (modificado: botão Aimbot + correção de drag para evitar "saltos" da GUI)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -39,8 +40,9 @@ end)
 local MAIN_W, MAIN_H = 350, 450
 local mainFrame = Instance.new("Frame",screenGui)
 mainFrame.Size = UDim2.new(0,MAIN_W,0,MAIN_H)
-mainFrame.Position = UDim2.new(0.5,0,0.5,0)
-mainFrame.AnchorPoint = Vector2.new(0.5,0.5)
+-- mantendo AnchorPoint = (0,0) e centralizando via offsets para evitar saltos na hora do drag
+mainFrame.AnchorPoint = Vector2.new(0,0)
+mainFrame.Position = UDim2.new(0.5, -MAIN_W/2, 0.5, -MAIN_H/2)
 mainFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 mainFrame.BorderSizePixel = 0
 mainFrame.Visible = false
@@ -113,6 +115,24 @@ espButton.MouseButton1Click:Connect(function()
     espButton.Text = "ESP: "..(ESPEnabled and "ON" or "OFF")
     espIndicator.BackgroundColor3 = ESPEnabled and Color3.fromRGB(80,255,120) or Color3.fromRGB(200,60,60)
 end)
+
+-- === NOVO: botão Aimbot (aparecerá logo abaixo do ESP, por causa do UIListLayout) ===
+local AimbotEnabled = false
+local AIM_FOV = 150 -- em pixels (raio do "FOV" centrado na tela)
+local aimbotButton = makeButton(buttonContainer,"Aimbot: OFF")
+local aimIndicator = Instance.new("Frame",aimbotButton)
+aimIndicator.Size = UDim2.new(0,12,0,12)
+aimIndicator.Position = UDim2.new(0.92,0,0.2,0)
+aimIndicator.BackgroundColor3 = Color3.fromRGB(200,60,60)
+aimIndicator.BorderSizePixel = 0
+local aimCorner = Instance.new("UICorner",aimIndicator)
+aimCorner.CornerRadius = UDim.new(0,6)
+aimbotButton.MouseButton1Click:Connect(function()
+    AimbotEnabled = not AimbotEnabled
+    aimbotButton.Text = "Aimbot: "..(AimbotEnabled and "ON" or "OFF")
+    aimIndicator.BackgroundColor3 = AimbotEnabled and Color3.fromRGB(80,255,120) or Color3.fromRGB(200,60,60)
+end)
+-- ======================================================================
 
 local speedLabel = Instance.new("TextLabel",buttonContainer)
 speedLabel.Size = UDim2.new(1,0,0,20)
@@ -197,13 +217,14 @@ end)
 floatButton.InputEnded:Connect(function() draggingFloat=false end)
 floatButton.MouseButton1Click:Connect(function() mainFrame.Visible = not mainFrame.Visible end)
 
--- Drag do mainFrame
+-- Drag do mainFrame (corrigido para evitar "pulos")
 local dragging, dragStart, startPos = false,nil,nil
 mainFrame.InputBegan:Connect(function(input)
     if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
-        startPos = mainFrame.Position
+        -- usamos AbsolutePosition para cálculo sem mudar AnchorPoint
+        startPos = mainFrame.AbsolutePosition
         input.Changed:Connect(function()
             if input.UserInputState==Enum.UserInputState.End then dragging=false end
         end)
@@ -215,8 +236,9 @@ mainFrame.InputChanged:Connect(function(input)
         local screenSize = workspace.CurrentCamera.ViewportSize
         local maxX = math.max(0,screenSize.X-mainFrame.AbsoluteSize.X)
         local maxY = math.max(0,screenSize.Y-mainFrame.AbsoluteSize.Y)
-        mainFrame.Position = UDim2.new(0,math.clamp(startPos.X.Offset+delta.X,0,maxX),
-                                       0,math.clamp(startPos.Y.Offset+delta.Y,0,maxY))
+        local newX = math.clamp(startPos.X + delta.X, 0, maxX)
+        local newY = math.clamp(startPos.Y + delta.Y, 0, maxY)
+        mainFrame.Position = UDim2.new(0, newX, 0, newY)
     end
 end)
 
@@ -284,11 +306,36 @@ end
 local ESPTable = {}
 Players.PlayerAdded:Connect(function(plr) task.delay(1,function() table.insert(ESPTable,createESP(plr)) end) end)
 for _,plr in ipairs(Players:GetPlayers()) do if plr~=player then table.insert(ESPTable,createESP(plr)) end end
+
+-- === Aimbot simple logic (checa a cada Heartbeat se AimbotEnabled) ===
+local function getAimbotTarget()
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
+    local center = cam.ViewportSize/2
+    local best, bestDist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character and plr.Character:FindFirstChild("Head") then
+            local head = plr.Character.Head
+            local vp, onScreen = cam:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local screenPos = Vector2.new(vp.X, vp.Y)
+                local dist = (screenPos - center).Magnitude
+                if dist < bestDist and dist <= AIM_FOV then
+                    bestDist = dist
+                    best = plr
+                end
+            end
+        end
+    end
+    return best
+end
+-- ===================================================================
+
 RunService.Heartbeat:Connect(function()
     if ESPEnabled then
         for i,v in ipairs(ESPTable) do
             local plr = v.player
-            if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
                 local dist = player.Character and player.Character:FindFirstChild("HumanoidRootPart") and
                              (plr.Character.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude or 0
                 v.label.Text = plr.Name.." | "..math.floor(dist).." studs"
@@ -298,5 +345,16 @@ RunService.Heartbeat:Connect(function()
     else
         for i,v in ipairs(ESPTable) do v.bg.Enabled=false end
     end
+
+    -- Aimbot behaviour (mobile-style: camera CFrame toward Head)
+    if AimbotEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        local target = getAimbotTarget()
+        if target and target.Character and target.Character:FindFirstChild("Head") and workspace.CurrentCamera then
+            pcall(function()
+                workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position, target.Character.Head.Position)
+            end)
+        end
+    end
 end)
+
 print("Pedro Hub V1.5 carregado")
