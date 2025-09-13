@@ -1,701 +1,302 @@
--- Serviços
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
 local player = Players.LocalPlayer
-local PlayerGui = player:WaitForChild("PlayerGui")
+local cloakName = "Laser Cape"
+local activeCloak = nil
+local cloakCheckCooldown = 0.05
+local autoEquipEnabled = true
+local ESPEnabled = false
+local lastCloakCheck = 0
+local MIN_COOLDOWN, MAX_COOLDOWN = 0.01,1.2
 
--- Estados
-local isUp = false
-local isMoving = false
-local platform = nil
-local playerESPEnabled = true
-local rarityESPEnabled = true
-local wallBypass = false
-local speedEnabled = false
-local espLoop = true
-local currentSpeed = 50
-local currentTab = "Main"
-local hopping = false
-local minimized = false
+local playerGui = player:WaitForChild("PlayerGui")
+local screenGui = Instance.new("ScreenGui",playerGui)
+screenGui.Name = "PedroHubGUI"
 
--- Configurações de Raridades
-local raritiesConfig = {
-    Common = {enabled = true, color = Color3.new(1,1,1)},
-    Rare = {enabled = true, color = Color3.new(0,1,0)},
-    Epic = {enabled = true, color = Color3.new(0,0.5,1)},
-    Legendary = {enabled = true, color = Color3.new(0.5,0,1)},
-    Mythic = {enabled = true, color = Color3.new(1,0.8,0)}
-}
+-- tela de carregamento
+local loadFrame = Instance.new("Frame",screenGui)
+loadFrame.Size = UDim2.new(1,0,1,0)
+loadFrame.BackgroundColor3 = Color3.new(0,0,0)
+local loadLabel = Instance.new("TextLabel",loadFrame)
+loadLabel.Size = UDim2.new(1,0,0,100)
+loadLabel.Position = UDim2.new(0,0,0.45,0)
+loadLabel.BackgroundTransparency = 1
+loadLabel.Text = "Pedro Hub V1.5"
+loadLabel.Font = Enum.Font.GothamBold
+loadLabel.TextSize = 46
+loadLabel.TextColor3 = Color3.fromRGB(0,255,255)
+loadLabel.TextStrokeTransparency = 0.6
 
--- Cache para ESPs
-local trackedPlayers = {}
-local trackedRarities = {}
-
--- Função para criar botões estilizados
-local function createButton(text, callback, color)
-    local btn = Instance.new("TextButton")
-    btn.Text = text
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 16
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.BackgroundColor3 = color
-    btn.AutoButtonColor = false
-    btn.ZIndex = 2
-    
-    local btnCorner = Instance.new("UICorner", btn)
-    btnCorner.CornerRadius = UDim.new(0, 8)
-    
-    local stroke = Instance.new("UIStroke", btn)
-    stroke.Color = Color3.fromRGB(200, 200, 255)
-    stroke.Thickness = 1
-    
-    -- Animação de hover
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.2), {
-            BackgroundTransparency = 0,
-            Size = UDim2.new(btn.Size.X.Scale + 0.02, 0, 0, btn.Size.Y.Offset + 2)
-        }):Play()
-    end)
-    
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.2), {
-            BackgroundTransparency = 0.2,
-            Size = UDim2.new(btn.Size.X.Scale - 0.02, 0, 0, btn.Size.Y.Offset - 2)
-        }):Play()
-    end)
-    
-    btn.MouseButton1Down:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.1), {
-            BackgroundTransparency = 0.4,
-            Size = UDim2.new(btn.Size.X.Scale - 0.02, 0, 0, btn.Size.Y.Offset - 2)
-        }):Play()
-    end)
-    
-    btn.MouseButton1Up:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.1), {
-            BackgroundTransparency = 0.2,
-            Size = UDim2.new(btn.Size.X.Scale, 0, 0, btn.Size.Y.Offset)
-        }):Play()
-        callback()
-    end)
-    
-    return btn
-end
-
--- Função para aplicar velocidade
-local function setCharacterSpeed()
-    local char = player.Character
-    if char then
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid.WalkSpeed = speedEnabled and currentSpeed or 16
-        end
-    end
-end
-
--- Conexão para aplicar velocidade continuamente
-local speedConnection
-local function toggleSpeed()
-    speedEnabled = not speedEnabled
-    
-    if speedConnection then
-        speedConnection:Disconnect()
-        speedConnection = nil
-    end
-    
-    if speedEnabled then
-        speedConnection = RunService.Heartbeat:Connect(setCharacterSpeed)
-    end
-    
-    setCharacterSpeed()
-    speedBtn.Text = speedEnabled and "⚡ SPEED: "..currentSpeed or "⚡ SPEED: OFF"
-end
-
--- Atualizar velocidade quando o personagem é recriado
-player.CharacterAdded:Connect(function(character)
-    character:WaitForChild("Humanoid", 5)
-    setCharacterSpeed()
+local dots = 0
+local loadConn
+loadConn = RunService.Heartbeat:Connect(function()
+    dots = (dots + 1) % 4
+    loadLabel.Text = "Pedro Hub V1.5"..string.rep(".",dots)
 end)
 
--- TELEPORT UP/DOWN
-local function teleportUpDown()
-    if isMoving then return end
-    isMoving = true
-    local char = player.Character or player.CharacterAdded:Wait()
-    local root = char:WaitForChild("HumanoidRootPart")
-    local hum = char:FindFirstChild("Humanoid")
-    if not root or not hum or hum.Health <= 0 then
-        isMoving = false
-        return
-    end
-    if not isUp then
-        platform = Instance.new("Part", workspace)
-        platform.Size = Vector3.new(6,1,6)
-        platform.Anchored = true
-        platform.Transparency = 1
-        platform.CanCollide = true
-        platform.Position = root.Position + Vector3.new(0,55,0)
-        root.Anchored = true
-        root.CFrame = platform.CFrame + Vector3.new(0,3,0)
-        task.wait(0.5)
-        root.Anchored = false
-        isUp = true
-    else
-        root.Anchored = true
-        root.CFrame = platform.CFrame - Vector3.new(0,52,0)
-        task.wait(0.5)
-        root.Anchored = false
-        platform:Destroy()
-        platform = nil
-        isUp = false
-    end
-    isMoving = false
-end
-
--- WALL CLIMB
-local wallClimbConnection
-wallClimbConnection = RunService.RenderStepped:Connect(function()
-    if wallBypass then
-        local char = player.Character
-        if not char then return end
-        local root = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChild("Humanoid")
-        if root and hum and hum.MoveDirection.Magnitude > 0 then
-            local params = RaycastParams.new()
-            params.FilterType = Enum.RaycastFilterType.Blacklist
-            params.FilterDescendantsInstances = {char}
-            local result = workspace:Raycast(root.Position, root.CFrame.LookVector * 2 + Vector3.new(0, 2, 0), params)
-            if result and result.Instance and result.Normal.Y < 0.5 then
-                root.Velocity = Vector3.new(0, 50, 0)
-            end
-        end
-    end
-end)
-
--- Função otimizada para ESP de jogadores
-local function updatePlayerESP()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
-            local char = plr.Character
-            local humanoidRootPart = char:FindFirstChild("HumanoidRootPart")
-            local head = char:FindFirstChild("Head")
-            
-            if humanoidRootPart and head then
-                if not trackedPlayers[plr] then
-                    local highlight = Instance.new("Highlight")
-                    highlight.Name = "PlayerHighlight"
-                    highlight.FillColor = Color3.new(1, 0, 0)
-                    highlight.OutlineColor = Color3.new(1, 1, 1)
-                    highlight.FillTransparency = 0.7
-                    highlight.OutlineTransparency = 0
-                    highlight.Parent = char
-                    
-                    local billboard = Instance.new("BillboardGui")
-                    billboard.Name = "PlayerESPTag"
-                    billboard.Size = UDim2.new(0, 100, 0, 20)
-                    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-                    billboard.AlwaysOnTop = true
-                    billboard.Parent = head
-                    
-                    local label = Instance.new("TextLabel")
-                    label.Size = UDim2.new(1, 0, 1, 0)
-                    label.BackgroundTransparency = 1
-                    label.Text = plr.Name
-                    label.Font = Enum.Font.GothamBold
-                    label.TextColor3 = Color3.new(1, 1, 1)
-                    label.TextStrokeTransparency = 0.5
-                    label.Parent = billboard
-                    
-                    trackedPlayers[plr] = {
-                        highlight = highlight,
-                        billboard = billboard,
-                        label = label
-                    }
-                end
-                
-                if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                    local distance = (player.Character.HumanoidRootPart.Position - humanoidRootPart.Position).Magnitude
-                    trackedPlayers[plr].label.Text = plr.Name .. " (" .. math.floor(distance) .. "m)"
-                end
-            end
-        elseif trackedPlayers[plr] then
-            trackedPlayers[plr].highlight:Destroy()
-            trackedPlayers[plr].billboard:Destroy()
-            trackedPlayers[plr] = nil
-        end
-    end
-end
-
--- Função otimizada para ESP de raridade
-local function updateRarityESP()
-    for obj, _ in pairs(trackedRarities) do
-        if not obj.Parent then
-            trackedRarities[obj] = nil
-        end
-    end
-
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("TextLabel") and raritiesConfig[obj.Text] and raritiesConfig[obj.Text].enabled then
-            local model = obj:FindFirstAncestorOfClass("Model")
-            if model and not trackedRarities[model] then
-                local rootPart = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head") or model.PrimaryPart
-                if rootPart then
-                    local billboard = Instance.new("BillboardGui")
-                    billboard.Name = "RarityESPLabel"
-                    billboard.Size = UDim2.new(0, 100, 0, 30)
-                    billboard.StudsOffset = Vector3.new(0, 3, 0)
-                    billboard.AlwaysOnTop = true
-                    billboard.Parent = rootPart
-                    
-                    local label = Instance.new("TextLabel")
-                    label.Size = UDim2.new(1, 0, 1, 0)
-                    label.TextSize = 20
-                    label.BackgroundTransparency = 1
-                    label.Text = obj.Text
-                    label.Font = Enum.Font.GothamBold
-                    label.TextColor3 = raritiesConfig[obj.Text].color
-                    label.Parent = billboard
-                    
-                    trackedRarities[model] = billboard
-                end
-            end
-        end
-    end
-end
-
--- Loop principal otimizado para ESP
-task.spawn(function()
-    while espLoop do
-        if playerESPEnabled then
-            updatePlayerESP()
-        end
-        
-        if rarityESPEnabled and tick() % 2 < 0.1 then
-            updateRarityESP()
-        end
-        
-        task.wait(0.1)
-    end
-end)
-
--- Função para limpar ESPs
-local function clearESP()
-    for plr, data in pairs(trackedPlayers) do
-        data.highlight:Destroy()
-        data.billboard:Destroy()
-    end
-    trackedPlayers = {}
-    
-    for _, billboard in pairs(trackedRarities) do
-        billboard:Destroy()
-    end
-    trackedRarities = {}
-end
-
--- SERVER HOP MOBILE (VERSÃO SIMPLIFICADA)
-local function serverHop()
-    if hopping then return end
-    hopping = true
-    
-    -- Notificação mobile
-    local notify = Instance.new("Frame", PlayerGui)
-    notify.Size = UDim2.new(0.8, 0, 0, 60)
-    notify.Position = UDim2.new(0.1, 0, 0.05, 0)
-    notify.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-    notify.BackgroundTransparency = 0.2
-    
-    local corner = Instance.new("UICorner", notify)
-    corner.CornerRadius = UDim.new(0, 12)
-    
-    local stroke = Instance.new("UIStroke", notify)
-    stroke.Color = Color3.fromRGB(0, 200, 255)
-    stroke.Thickness = 2
-    
-    local label = Instance.new("TextLabel", notify)
-    label.Size = UDim2.new(1, -10, 1, -10)
-    label.Position = UDim2.new(0, 5, 0, 5)
-    label.Text = "🔍 Procurando servidor..."
-    label.Font = Enum.Font.GothamBold
-    label.TextColor3 = Color3.fromRGB(200, 230, 255)
-    label.BackgroundTransparency = 1
-    label.TextSize = 14
-    label.TextWrapped = true
-    
-    -- Animação de entrada
-    notify.Position = UDim2.new(0.1, 0, -0.1, 0)
-    TweenService:Create(notify, TweenInfo.new(0.3), {
-        Position = UDim2.new(0.1, 0, 0.05, 0)
-    }):Play()
-    
-    -- Método simplificado para mobile
-    local success, err = pcall(function()
-        TeleportService:Teleport(game.PlaceId)
-    end)
-    
-    if not success then
-        label.Text = "⚠️ Erro: " .. tostring(err)
-    end
-    
-    -- Remover após 3 segundos
-    delay(3, function()
-        TweenService:Create(notify, TweenInfo.new(0.3), {
-            BackgroundTransparency = 1,
-            Position = UDim2.new(0.1, 0, -0.1, 0)
-        }):Play()
-        wait(0.3)
-        notify:Destroy()
-    end)
-    
-    hopping = false
-end
-
--- Criação da UI
-local gui = Instance.new("ScreenGui", PlayerGui)
-gui.Name = "Vixz Hub 👁️"
-gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
--- Frame principal
-local mainFrame = Instance.new("Frame", gui)
-mainFrame.Size = UDim2.new(0, 380, 0, 420)
-mainFrame.Position = UDim2.new(0.5, -190, 0.5, -210)
-mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-mainFrame.BackgroundTransparency = 0.2
+local MAIN_W, MAIN_H = 350, 450
+local mainFrame = Instance.new("Frame",screenGui)
+mainFrame.Size = UDim2.new(0,MAIN_W,0,MAIN_H)
+mainFrame.Position = UDim2.new(0.5,0,0.5,0)
+mainFrame.AnchorPoint = Vector2.new(0.5,0.5)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 mainFrame.BorderSizePixel = 0
+mainFrame.Visible = false
+local UICorner = Instance.new("UICorner",mainFrame)
+UICorner.CornerRadius = UDim.new(0,16)
 
-local corner = Instance.new("UICorner", mainFrame)
-corner.CornerRadius = UDim.new(0, 12)
+local header = Instance.new("TextLabel",mainFrame)
+header.Size = UDim2.new(1,0,0,50)
+header.Position = UDim2.new(0,0,0,0)
+header.BackgroundColor3 = Color3.fromRGB(30,30,30)
+header.BorderSizePixel = 0
+header.Text = "💎 Pedro Hub"
+header.Font = Enum.Font.GothamBold
+header.TextSize = 22
+header.TextColor3 = Color3.fromRGB(0,255,255)
+local hc = Instance.new("UICorner",header)
+hc.CornerRadius = UDim.new(0,12)
 
--- Efeito de vidro
-local glass = Instance.new("Frame", mainFrame)
-glass.Size = UDim2.new(1, 0, 1, 0)
-glass.BackgroundTransparency = 0.9
-glass.BackgroundColor3 = Color3.fromRGB(150, 150, 255)
-glass.BorderSizePixel = 0
-glass.ZIndex = -1
+local buttonContainer = Instance.new("Frame",mainFrame)
+buttonContainer.Size = UDim2.new(1,0,1,-60)
+buttonContainer.Position = UDim2.new(0,0,0,50)
+buttonContainer.BackgroundTransparency = 1
+local uiList = Instance.new("UIListLayout",buttonContainer)
+uiList.Padding = UDim.new(0,12)
+uiList.FillDirection = Enum.FillDirection.Vertical
+uiList.SortOrder = Enum.SortOrder.LayoutOrder
+local uiPadding = Instance.new("UIPadding",buttonContainer)
+uiPadding.PaddingTop = UDim.new(0,12)
+uiPadding.PaddingBottom = UDim.new(0,12)
+uiPadding.PaddingLeft = UDim.new(0,18)
+uiPadding.PaddingRight = UDim.new(0,18)
 
-local glassCorner = Instance.new("UICorner", glass)
-glassCorner.CornerRadius = UDim.new(0, 12)
-
--- Barra de título
-local titleBar = Instance.new("Frame", mainFrame)
-titleBar.Size = UDim2.new(1, 0, 0, 40)
-titleBar.BackgroundTransparency = 0.5
-titleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-titleBar.BorderSizePixel = 0
-
-local titleCorner = Instance.new("UICorner", titleBar)
-titleCorner.CornerRadius = UDim.new(0, 12)
-
-local title = Instance.new("TextLabel", titleBar)
-title.Size = UDim2.new(1, 0, 1, 0)
-title.Text = "⚡ Vixz Hub  ⚡"
-title.Font = Enum.Font.GothamBold
-title.TextColor3 = Color3.new(1, 1, 1)
-title.BackgroundTransparency = 1
-title.TextSize = 18
-
--- Botões de controle
-local closeBtn = Instance.new("TextButton", titleBar)
-closeBtn.Size = UDim2.new(0, 30, 0, 30)
-closeBtn.Position = UDim2.new(1, -35, 0.5, -15)
-closeBtn.Text = "X"
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextColor3 = Color3.new(1, 1, 1)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-closeBtn.AutoButtonColor = false
-
-local closeCorner = Instance.new("UICorner", closeBtn)
-closeCorner.CornerRadius = UDim.new(0, 8)
-
-local minimizeBtn = Instance.new("TextButton", titleBar)
-minimizeBtn.Size = UDim2.new(0, 30, 0, 30)
-minimizeBtn.Position = UDim2.new(1, -70, 0.5, -15)
-minimizeBtn.Text = "-"
-minimizeBtn.Font = Enum.Font.GothamBold
-minimizeBtn.TextColor3 = Color3.new(1, 1, 1)
-minimizeBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 120)
-minimizeBtn.AutoButtonColor = false
-
-local minimizeCorner = Instance.new("UICorner", minimizeBtn)
-minimizeCorner.CornerRadius = UDim.new(0, 8)
-
--- Barra de abas
-local tabBar = Instance.new("Frame", mainFrame)
-tabBar.Size = UDim2.new(1, 0, 0, 40)
-tabBar.Position = UDim2.new(0, 0, 0, 40)
-tabBar.BackgroundTransparency = 1
-
-local tabLayout = Instance.new("UIListLayout", tabBar)
-tabLayout.FillDirection = Enum.FillDirection.Horizontal
-tabLayout.Padding = UDim.new(0, 5)
-tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
--- Função para criar abas
-local function createTab(name)
-    local tab = Instance.new("TextButton", tabBar)
-    tab.Size = UDim2.new(0.3, 0, 0.8, 0)
-    tab.Text = name
-    tab.Font = Enum.Font.GothamBold
-    tab.TextSize = 14
-    tab.TextColor3 = Color3.new(1, 1, 1)
-    tab.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-    tab.BackgroundTransparency = 0.5
-    tab.AutoButtonColor = false
-    
-    local tabCorner = Instance.new("UICorner", tab)
-    tabCorner.CornerRadius = UDim.new(0, 8)
-    
-    tab.MouseButton1Click:Connect(function()
-        currentTab = name
-        for _, tabName in ipairs({"Sobre", "Main", "Visual"}) do
-            local frame = mainFrame:FindFirstChild(tabName.."Frame")
-            if frame then
-                frame.Visible = (tabName == name)
-            end
-        end
-    end)
-    
-    return tab
+local function makeButton(parent,text)
+    local b = Instance.new("TextButton",parent)
+    b.Size = UDim2.new(1,0,0,40)
+    b.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    b.TextColor3 = Color3.fromRGB(200,255,255)
+    b.Text = text
+    b.Font = Enum.Font.Gotham
+    b.TextSize = 16
+    local c = Instance.new("UICorner",b)
+    c.CornerRadius = UDim.new(0,12)
+    return b
 end
 
--- Criar abas
-createTab("Sobre")
-createTab("Main")
-createTab("Visual")
+local toggleButton = makeButton(buttonContainer,"Auto-Equip: ON")
+local autoIndicator = Instance.new("Frame",toggleButton)
+autoIndicator.Size = UDim2.new(0,12,0,12)
+autoIndicator.Position = UDim2.new(0.92,0,0.2,0)
+autoIndicator.BackgroundColor3 = Color3.fromRGB(80,255,120)
+autoIndicator.BorderSizePixel = 0
+local aiCorner = Instance.new("UICorner",autoIndicator)
+aiCorner.CornerRadius = UDim.new(0,6)
+toggleButton.MouseButton1Click:Connect(function()
+    autoEquipEnabled = not autoEquipEnabled
+    toggleButton.Text = "Auto-Equip: "..(autoEquipEnabled and "ON" or "OFF")
+    autoIndicator.BackgroundColor3 = autoEquipEnabled and Color3.fromRGB(80,255,120) or Color3.fromRGB(200,60,60)
+end)
 
--- Frames de conteúdo para cada aba
-local function createContentFrame(name)
-    local frame = Instance.new("Frame", mainFrame)
-    frame.Name = name.."Frame"
-    frame.Size = UDim2.new(1, -20, 1, -130)
-    frame.Position = UDim2.new(0, 10, 0, 90)
-    frame.BackgroundTransparency = 1
-    frame.Visible = (name == currentTab)
-    return frame
-end
+local espButton = makeButton(buttonContainer,"ESP: OFF")
+local espIndicator = Instance.new("Frame",espButton)
+espIndicator.Size = UDim2.new(0,12,0,12)
+espIndicator.Position = UDim2.new(0.92,0,0.2,0)
+espIndicator.BackgroundColor3 = Color3.fromRGB(200,60,60)
+espIndicator.BorderSizePixel = 0
+local eiCorner = Instance.new("UICorner",espIndicator)
+eiCorner.CornerRadius = UDim.new(0,6)
+espButton.MouseButton1Click:Connect(function()
+    ESPEnabled = not ESPEnabled
+    espButton.Text = "ESP: "..(ESPEnabled and "ON" or "OFF")
+    espIndicator.BackgroundColor3 = ESPEnabled and Color3.fromRGB(80,255,120) or Color3.fromRGB(200,60,60)
+end)
 
-local sobreFrame = createContentFrame("Sobre")
-local mainFrameContent = createContentFrame("Main")
-local visualFrame = createContentFrame("Visual")
+local speedLabel = Instance.new("TextLabel",buttonContainer)
+speedLabel.Size = UDim2.new(1,0,0,20)
+speedLabel.BackgroundTransparency = 1
+speedLabel.TextColor3 = Color3.fromRGB(170,255,255)
+speedLabel.Text = string.format("Velocidade: %.2fs",cloakCheckCooldown)
+speedLabel.Font = Enum.Font.Gotham
+speedLabel.TextSize = 14
 
--- Conteúdo da aba Sobre
-local sobreText = [[
-⚡ Vixz Hub ⚡
-Versão 2.0
-
-Recursos:
-- Player ESP (nome e distância)
-- Rarity ESP (filtro personalizável)
-- Controle de velocidade
-- Teleport vertical
-- Wall climb
-- Server Hop
-
-Desenvolvido por Vixz
-]]
-
-local sobreLabel = Instance.new("TextLabel", sobreFrame)
-sobreLabel.Size = UDim2.new(1, 0, 1, 0)
-sobreLabel.Text = sobreText
-sobreLabel.Font = Enum.Font.Gotham
-sobreLabel.TextSize = 14
-sobreLabel.TextColor3 = Color3.new(1, 1, 1)
-sobreLabel.BackgroundTransparency = 1
-sobreLabel.TextXAlignment = Enum.TextXAlignment.Left
-sobreLabel.TextYAlignment = Enum.TextYAlignment.Top
-
--- Conteúdo da aba Main
-local buttonsFrame = Instance.new("Frame", mainFrameContent)
-buttonsFrame.Size = UDim2.new(1, 0, 1, 0)
-buttonsFrame.BackgroundTransparency = 1
-
-local gridLayout = Instance.new("UIGridLayout", buttonsFrame)
-gridLayout.CellPadding = UDim2.new(0, 10, 0, 10)
-gridLayout.CellSize = UDim2.new(0.5, -5, 0, 50)
-gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-
--- Criar botões na aba Main
-local teleportBtn = createButton("▲/▼ TELEPORT", teleportUpDown, Color3.fromRGB(0, 120, 215))
-teleportBtn.Parent = buttonsFrame
-
-local wallBtn = createButton("🧱 WALL CLIMB", function() 
-    wallBypass = not wallBypass
-end, Color3.fromRGB(50, 180, 80))
-wallBtn.Parent = buttonsFrame
-
-local serverHopBtn = createButton("🔄 SERVER HOP", serverHop, Color3.fromRGB(150, 50, 200))
-serverHopBtn.Parent = buttonsFrame
-
--- Botão de velocidade com controle
-local speedBtn = createButton("⚡ SPEED: "..currentSpeed, toggleSpeed, Color3.fromRGB(215, 180, 0))
-speedBtn.Parent = buttonsFrame
-
--- Controles de velocidade
-local speedControls = Instance.new("Frame", buttonsFrame)
-speedControls.Size = UDim2.new(1, 0, 0, 30)
-speedControls.BackgroundTransparency = 1
-speedControls.LayoutOrder = 100
-
-local decreaseBtn = Instance.new("TextButton", speedControls)
-decreaseBtn.Size = UDim2.new(0.25, 0, 1, 0)
-decreaseBtn.Text = "-"
-decreaseBtn.Font = Enum.Font.GothamBold
-decreaseBtn.TextSize = 18
-decreaseBtn.TextColor3 = Color3.new(1, 1, 1)
-decreaseBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 90)
-decreaseBtn.AutoButtonColor = false
-
-local decreaseCorner = Instance.new("UICorner", decreaseBtn)
-decreaseCorner.CornerRadius = UDim.new(0, 6)
-
-local speedDisplay = Instance.new("TextLabel", speedControls)
-speedDisplay.Size = UDim2.new(0.5, 0, 1, 0)
-speedDisplay.Position = UDim2.new(0.25, 0, 0, 0)
-speedDisplay.Text = "Velocidade: "..currentSpeed
-speedDisplay.Font = Enum.Font.Gotham
-speedDisplay.TextSize = 14
-speedDisplay.TextColor3 = Color3.new(1, 1, 1)
-speedDisplay.BackgroundTransparency = 1
-
-local increaseBtn = Instance.new("TextButton", speedControls)
-increaseBtn.Size = UDim2.new(0.25, 0, 1, 0)
-increaseBtn.Position = UDim2.new(0.75, 0, 0, 0)
-increaseBtn.Text = "+"
-increaseBtn.Font = Enum.Font.GothamBold
-increaseBtn.TextSize = 18
-increaseBtn.TextColor3 = Color3.new(1, 1, 1)
-increaseBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 90)
-increaseBtn.AutoButtonColor = false
-
-local increaseCorner = Instance.new("UICorner", increaseBtn)
-increaseCorner.CornerRadius = UDim.new(0, 6)
-
--- Funcionalidade dos controles de velocidade
-decreaseBtn.MouseButton1Click:Connect(function()
-    currentSpeed = math.max(16, currentSpeed - 5)
-    speedBtn.Text = "⚡ SPEED: "..currentSpeed
-    speedDisplay.Text = "Velocidade: "..currentSpeed
-    if speedEnabled then
-        setCharacterSpeed()
+local sliderFrame = Instance.new("Frame",buttonContainer)
+sliderFrame.Size = UDim2.new(1,0,0,18)
+sliderFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+local sliderCorner = Instance.new("UICorner",sliderFrame)
+sliderCorner.CornerRadius = UDim.new(0,10)
+local sliderFill = Instance.new("Frame",sliderFrame)
+sliderFill.Size = UDim2.new( ( (cloakCheckCooldown-MIN_COOLDOWN)/(MAX_COOLDOWN-MIN_COOLDOWN) ),0,1,0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(0,160,255)
+local fillCorner = Instance.new("UICorner",sliderFill)
+fillCorner.CornerRadius = UDim.new(0,10)
+local sliderDragging = false
+sliderFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderDragging = true
+    end
+end)
+sliderFrame.InputEnded:Connect(function() sliderDragging = false end)
+RunService.Heartbeat:Connect(function()
+    if sliderDragging then
+        local mousePos = UserInputService:GetMouseLocation()
+        local relativeX = math.clamp((mousePos.X - sliderFrame.AbsolutePosition.X)/sliderFrame.AbsoluteSize.X,0,1)
+        cloakCheckCooldown = MIN_COOLDOWN + relativeX*(MAX_COOLDOWN-MIN_COOLDOWN)
+        speedLabel.Text = string.format("Velocidade: %.2fs",cloakCheckCooldown)
+        sliderFill.Size = UDim2.new(relativeX,0,1,0)
     end
 end)
 
-increaseBtn.MouseButton1Click:Connect(function()
-    currentSpeed = currentSpeed + 5
-    speedBtn.Text = "⚡ SPEED: "..currentSpeed
-    speedDisplay.Text = "Velocidade: "..currentSpeed
-    if speedEnabled then
-        setCharacterSpeed()
+local jobIdBox = Instance.new("TextBox",buttonContainer)
+jobIdBox.Size = UDim2.new(1,0,0,30)
+jobIdBox.BackgroundColor3 = Color3.fromRGB(6,6,30)
+jobIdBox.TextColor3 = Color3.fromRGB(180,255,255)
+jobIdBox.PlaceholderText = "Cole o JobId aqui"
+jobIdBox.Font = Enum.Font.Gotham
+local jobCorner = Instance.new("UICorner",jobIdBox)
+jobCorner.CornerRadius = UDim.new(0,10)
+
+local teleportButton = makeButton(buttonContainer,"Entrar no servidor")
+teleportButton.MouseButton1Click:Connect(function()
+    local jobId = jobIdBox.Text
+    if jobId and jobId~="" then
+        pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, jobId, player) end)
     end
 end)
 
--- Conteúdo da aba Visual
-local visualButtonsFrame = Instance.new("Frame", visualFrame)
-visualButtonsFrame.Size = UDim2.new(1, 0, 1, 0)
-visualButtonsFrame.BackgroundTransparency = 1
-
-local visualGrid = Instance.new("UIGridLayout", visualButtonsFrame)
-visualGrid.CellPadding = UDim2.new(0, 10, 0, 10)
-visualGrid.CellSize = UDim2.new(0.5, -5, 0, 50)
-visualGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
-visualGrid.SortOrder = Enum.SortOrder.LayoutOrder
-
--- Botões para ESP
-local playerESPButton = createButton("👤 PLAYER ESP", function()
-    playerESPEnabled = not playerESPEnabled
-    if not playerESPEnabled then
-        clearESP()
-    end
-end, Color3.fromRGB(200, 50, 50))
-playerESPButton.Parent = visualButtonsFrame
-
-local rarityESPButton = createButton("🌈 RARITY ESP", function()
-    rarityESPEnabled = not rarityESPEnabled
-    if not rarityESPEnabled then
-        for _, billboard in pairs(trackedRarities) do
-            billboard:Destroy()
-        end
-        trackedRarities = {}
-    end
-end, Color3.fromRGB(100, 50, 200))
-rarityESPButton.Parent = visualButtonsFrame
-
--- Botão de minimizar/maximizar
-minimizeBtn.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    if minimized then
-        mainFrame.Size = UDim2.new(0, 380, 0, 40)
-        minimizeBtn.Text = "+"
-        for _, tabName in ipairs({"Sobre", "Main", "Visual"}) do
-            local frame = mainFrame:FindFirstChild(tabName.."Frame")
-            if frame then
-                frame.Visible = false
-            end
-        end
-    else
-        mainFrame.Size = UDim2.new(0, 380, 0, 420)
-        minimizeBtn.Text = "-"
-        for _, tabName in ipairs({"Sobre", "Main", "Visual"}) do
-            local frame = mainFrame:FindFirstChild(tabName.."Frame")
-            if frame then
-                frame.Visible = (tabName == currentTab)
-            end
-        end
+-- Bola flutuante
+local floatButton = Instance.new("TextButton",screenGui)
+floatButton.Size = UDim2.new(0,50,0,50)
+floatButton.Position = UDim2.new(0,20,0.5,-25)
+floatButton.BackgroundColor3 = Color3.fromRGB(0,255,255)
+floatButton.Text = "💎"
+floatButton.TextScaled = true
+floatButton.TextColor3 = Color3.fromRGB(20,20,20)
+local floatCorner = Instance.new("UICorner",floatButton)
+floatCorner.CornerRadius = UDim.new(0,25)
+local draggingFloat, dragStartFloat, startPosFloat = false,nil,nil
+floatButton.InputBegan:Connect(function(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+        draggingFloat = true
+        dragStartFloat = input.Position
+        startPosFloat = floatButton.Position
     end
 end)
-
--- Botão de fechar
-closeBtn.MouseButton1Click:Connect(function()
-    gui:Destroy()
-    espLoop = false
-    clearESP()
-    if wallClimbConnection then
-        wallClimbConnection:Disconnect()
-    end
-    if speedConnection then
-        speedConnection:Disconnect()
+floatButton.InputChanged:Connect(function(input)
+    if draggingFloat then
+        local delta = input.Position - dragStartFloat
+        local screenSize = workspace.CurrentCamera.ViewportSize
+        local maxX = math.max(0,screenSize.X-floatButton.AbsoluteSize.X)
+        local maxY = math.max(0,screenSize.Y-floatButton.AbsoluteSize.Y)
+        floatButton.Position = UDim2.new(0,math.clamp(startPosFloat.X.Offset+delta.X,0,maxX),
+                                         0,math.clamp(startPosFloat.Y.Offset+delta.Y,0,maxY))
     end
 end)
+floatButton.InputEnded:Connect(function() draggingFloat=false end)
+floatButton.MouseButton1Click:Connect(function() mainFrame.Visible = not mainFrame.Visible end)
 
--- Sistema de arrastar para mobile e PC
-local dragging = false
-local dragInput, dragStart, startPos
-
-local function updateInput(input)
-    local delta = input.Position - dragStart
-    mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
-
-titleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+-- Drag do mainFrame
+local dragging, dragStart, startPos = false,nil,nil
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
         startPos = mainFrame.Position
-        
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
+            if input.UserInputState==Enum.UserInputState.End then dragging=false end
         end)
     end
 end)
-
-titleBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
-        dragInput = input
+mainFrame.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        local screenSize = workspace.CurrentCamera.ViewportSize
+        local maxX = math.max(0,screenSize.X-mainFrame.AbsoluteSize.X)
+        local maxY = math.max(0,screenSize.Y-mainFrame.AbsoluteSize.Y)
+        mainFrame.Position = UDim2.new(0,math.clamp(startPos.X.Offset+delta.X,0,maxX),
+                                       0,math.clamp(startPos.Y.Offset+delta.Y,0,maxY))
     end
 end)
 
-UIS.InputChanged:Connect(function(input)
-    if dragging and (input == dragInput) then
-        updateInput(input)
-    end
+task.delay(1.5,function()
+    if loadConn then loadConn:Disconnect() end
+    loadFrame:Destroy()
+    mainFrame.Visible = true
 end)
 
--- Inicializar velocidade
-setCharacterSpeed()
+-- FUNÇÃO LÁSER CAPE
+local function findCloakInBackpack()
+    local bp = player:FindFirstChild("Backpack")
+    return bp and bp:FindFirstChild(cloakName) or nil
+end
+local function findCloakInCharacter()
+    local ch = player.Character
+    return ch and ch:FindFirstChild(cloakName) or nil
+end
+
+player.CharacterAdded:Connect(function(char) activeCloak=nil task.delay(0.5,function() activeCloak=findCloakInCharacter() end) end)
+player.Character.ChildAdded:Connect(function(c) if c.Name==cloakName then activeCloak=c end end)
+player.Character.ChildRemoved:Connect(function(c) if c.Name==cloakName and activeCloak==c then activeCloak=nil end end)
+
+local function enforceCloak()
+    if not player.Character or not autoEquipEnabled then return end
+    if tick()-lastCloakCheck<cloakCheckCooldown then return end
+    lastCloakCheck=tick()
+    local humanoid=player.Character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    local cloak=findCloakInCharacter()
+    if cloak then activeCloak=cloak return end
+    local cloakBP=findCloakInBackpack()
+    if cloakBP then
+        task.spawn(function()
+            pcall(function() humanoid:EquipTool(cloakBP) end)
+            task.wait(0.12)
+            activeCloak=findCloakInCharacter() or cloakBP
+        end)
+    end
+end
+RunService.Heartbeat:Connect(enforceCloak)
+
+-- ESP
+local ESPFolder = Instance.new("Folder",screenGui)
+ESPFolder.Name="ESP"
+local function createESP(plr)
+    if not plr.Character then return end
+    local head = plr.Character:FindFirstChild("Head")
+    if not head then return end
+    local bg = Instance.new("BillboardGui",ESPFolder)
+    bg.Adornee=head
+    bg.Size=UDim2.new(0,150,0,50)
+    bg.AlwaysOnTop=true
+    local label = Instance.new("TextLabel",bg)
+    label.Size=UDim2.new(1,0,1,0)
+    label.BackgroundTransparency=0.5
+    label.BackgroundColor3=Color3.new(0,0,0)
+    label.TextColor3=Color3.fromRGB(0,255,255)
+    label.TextStrokeTransparency=0.6
+    label.Font=Enum.Font.GothamBold
+    label.TextScaled=true
+    return {bg=bg,label=label,player=plr}
+end
+
+local ESPTable = {}
+Players.PlayerAdded:Connect(function(plr) task.delay(1,function() table.insert(ESPTable,createESP(plr)) end) end)
+for _,plr in ipairs(Players:GetPlayers()) do if plr~=player then table.insert(ESPTable,createESP(plr)) end end
+RunService.Heartbeat:Connect(function()
+    if ESPEnabled then
+        for i,v in ipairs(ESPTable) do
+            local plr = v.player
+            if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local dist = player.Character and player.Character:FindFirstChild("HumanoidRootPart") and
+                             (plr.Character.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude or 0
+                v.label.Text = plr.Name.." | "..math.floor(dist).." studs"
+                v.bg.Enabled = true
+            else v.bg.Enabled=false end
+        end
+    else
+        for i,v in ipairs(ESPTable) do v.bg.Enabled=false end
+    end
+end)
+print("Pedro Hub V1.5 carregado")
